@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MCUmgr Serial DFU</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --fg: #1d2330; --dim: #6b7385; --border: #dde1e8;
+    --accent: #2563eb; --accent-fg: #fff; --ok: #15803d; --warn: #b45309; --err: #b91c1c;
+    --log-bg: #0f1420; --log-fg: #d6dbe6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #10131a; --panel: #181c25; --fg: #e3e7ef; --dim: #8a93a6; --border: #2a303d;
+      --accent: #4f8bff; --accent-fg: #fff; --ok: #4ade80; --warn: #fbbf24; --err: #f87171;
+      --log-bg: #0b0e14; --log-fg: #c9d0dd;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 20px 16px 40px; display: grid; gap: 16px; }
+  h1 { font-size: 20px; margin: 0; }
+  h2 { font-size: 15px; margin: 0 0 12px; }
+  section { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .spacer { flex: 1; }
+  button {
+    font: inherit; padding: 7px 14px; border-radius: 7px; border: 1px solid var(--border);
+    background: var(--panel); color: var(--fg); cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+  button.danger { color: var(--err); }
+  button.small { padding: 3px 9px; font-size: 12px; }
+  button:disabled { opacity: .45; cursor: default; }
+  input, select { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }
+  input[type=number] { width: 80px; }
+  label { display: inline-flex; gap: 6px; align-items: center; color: var(--dim); }
+  #status { font-weight: 600; }
+  #status::before { content: '●'; margin-right: 6px; }
+  #status[data-state=on] { color: var(--ok); }
+  #status[data-state=off] { color: var(--dim); }
+  #status[data-state=wait] { color: var(--warn); }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--dim); font-weight: 500; font-size: 12px; }
+  td.actions { white-space: nowrap; text-align: right; }
+  td.actions button { margin-left: 4px; }
+  .mono { font-family: ui-monospace, monospace; font-size: 12px; }
+  .tag { font-size: 11px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border); color: var(--dim); }
+  .tag-active { color: var(--ok); border-color: var(--ok); }
+  .tag-pending { color: var(--warn); border-color: var(--warn); }
+  .tag-confirmed { color: var(--accent); border-color: var(--accent); }
+  #img-info { margin-top: 10px; color: var(--fg); }
+  #img-info.err, .err { color: var(--err); }
+  .opts { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; margin-top: 12px; }
+  .opts label { white-space: nowrap; }
+  .opts select { max-width: 100%; }
+  progress { width: 100%; height: 10px; margin-top: 12px; }
+  #progress-text { color: var(--dim); font-size: 12px; min-height: 1.4em; }
+  #log {
+    background: var(--log-bg); color: var(--log-fg); font: 12px/1.5 ui-monospace, monospace;
+    height: 240px; overflow: auto; padding: 10px; border-radius: 7px; margin-top: 8px; white-space: pre-wrap;
+  }
+  #log .ok { color: #4ade80; } #log .warn { color: #fbbf24; } #log .err { color: #f87171; } #log .dim { color: #6b7385; }
+  #unsupported { background: var(--err); color: #fff; padding: 12px 16px; border-radius: 8px; }
+  .hint { color: var(--dim); font-size: 12px; margin: 8px 0 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>MCUmgr Serial DFU <span class="hint">MCUmgr SMP over Web Serial</span></h1>
+  <div id="unsupported" hidden>Web Serial is not available. Use Chrome or Edge, served from localhost or file://.</div>
+
+  <section>
+    <div class="row">
+      <button id="connect" class="primary">Connect</button>
+      <button id="disconnect">Disconnect</button>
+      <span id="status" data-state="off">Disconnected</span>
+      <span class="spacer"></span>
+      <label><input type="checkbox" id="auto-reconnect" checked> Reconnect after reset</label>
+    </div>
+    <p class="hint">Pick the serial port the device runs MCUmgr SMP on (not a log/shell port).</p>
+  </section>
+
+  <section>
+    <div class="row">
+      <h2 style="margin:0">Image slots</h2>
+      <span class="spacer"></span>
+      <button id="refresh">Refresh</button>
+      <button id="echo">Echo</button>
+      <button id="erase" class="danger">Erase slot 1</button>
+      <button id="reset" class="danger">Reset</button>
+    </div>
+    <table>
+      <thead><tr><th>img/slot</th><th>version</th><th>state</th><th>hash</th><th></th></tr></thead>
+      <tbody id="slots"></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Upload firmware</h2>
+    <div class="row">
+      <input type="file" id="file" accept=".bin,.zip">
+      <label id="zip-pick" hidden>Image <select id="zip-entry"></select></label>
+    </div>
+    <div id="img-info"></div>
+    <div class="opts">
+      <label>After upload
+        <select id="after">
+          <option value="test">Mark test (reverts unless confirmed)</option>
+          <option value="confirm">Mark confirmed (permanent)</option>
+          <option value="none">Do nothing</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="reset-after" checked> Reset after marking</label>
+      <label>MTU <input type="number" id="mtu" value="256" min="64" max="2048" step="32"></label>
+      <label>Line delay ms <input type="number" id="line-delay" value="0" min="0" max="50"></label>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button id="upload" class="primary">Upload</button>
+      <button id="cancel">Cancel</button>
+    </div>
+    <progress id="progress" max="100" value="0"></progress>
+    <div id="progress-text"></div>
+  </section>
+
+  <section>
+    <div class="row"><h2 style="margin:0">Log</h2><span class="spacer"></span><button id="clear-log" class="small">Clear</button></div>
+    <div id="log"></div>
+  </section>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>
