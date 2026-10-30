@@ -90,7 +90,7 @@
       <span class="spacer"></span>
       <button id="refresh">Refresh</button>
       <button id="echo">Echo</button>
-      <button id="erase" class="danger">Erase slot 1</button>
+      <button id="erase" class="danger">Erase slot <span id="erase-slot">1</span></button>
       <button id="reset" class="danger">Reset</button>
     </div>
     <table>
@@ -107,6 +107,8 @@
     </div>
     <div id="img-info"></div>
     <div class="opts">
+      <label title="SMP upload image number. 0 = secondary slot of image 0; with direct upload, N &gt; 0 targets slot N-1">Image <input type="number" id="target-image" value="0" min="0" max="15"></label>
+      <label title="Slot used to find the uploaded image for marking, and by Erase">Slot <input type="number" id="target-slot" value="1" min="0" max="15"></label>
       <label>After upload
         <select id="after">
           <option value="test">Mark test (reverts unless confirmed)</option>

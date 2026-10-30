@@ -1,5 +1,5 @@
 import { SmpSerial, SmpTimeout } from './smp.js';
-import { parseImage, listZip, hex } from './image.js';
+import { parseImage, listZip, parseManifest, hex } from './image.js';
 
 const $ = (id) => document.getElementById(id);
 const els = {
@@ -7,6 +7,7 @@ const els = {
   status: $('status'), autoReconnect: $('auto-reconnect'),
   refresh: $('refresh'), echo: $('echo'), reset: $('reset'), erase: $('erase'), slots: $('slots'),
   file: $('file'), zipPick: $('zip-pick'), zipEntry: $('zip-entry'), imgInfo: $('img-info'),
+  targetImage: $('target-image'), targetSlot: $('target-slot'), eraseSlot: $('erase-slot'),
   mtu: $('mtu'), lineDelay: $('line-delay'), after: $('after'), resetAfter: $('reset-after'),
   upload: $('upload'), cancel: $('cancel'), progress: $('progress'), progressText: $('progress-text'),
   log: $('log'), clearLog: $('clear-log'),
@@ -20,6 +21,9 @@ let probing = false;
 let busy = false;
 let abort = null;
 let image = null; // { data, info, name }
+
+const targetImage = () => Math.max(0, Number(els.targetImage.value) || 0);
+const targetSlot = () => Math.max(0, Number(els.targetSlot.value) || 0);
 
 function log(msg, cls = '') {
   const line = document.createElement('div');
@@ -193,21 +197,29 @@ els.reset.onclick = () => run('reset', async () => {
   log('reset requested', 'ok');
 });
 els.erase.onclick = () => run('erase', async () => {
-  if (!confirm('Erase the secondary slot (slot 1)?')) return;
-  await smp.imageErase(1);
-  log('slot 1 erased', 'ok');
+  const slot = targetSlot();
+  if (!confirm(`Erase slot ${slot}?`)) return;
+  await smp.imageErase(slot);
+  log(`slot ${slot} erased`, 'ok');
   await refreshSlots();
 });
 els.clearLog.onclick = () => { els.log.innerHTML = ''; };
+els.targetSlot.oninput = () => { els.eraseSlot.textContent = targetSlot(); };
 els.lineDelay.onchange = () => { smp.lineDelayMs = Math.max(0, Number(els.lineDelay.value) || 0); };
 
 // ---- image file ---------------------------------------------------------
 
-async function useImage(data, name) {
+// `target` ({image, slot?}) comes from a zip's manifest.json and overrides the inputs.
+async function useImage(data, name, target) {
   try {
     const info = parseImage(data);
     image = { data, info, name };
+    if (target) {
+      els.targetImage.value = target.image;
+      if (target.slot != null) { els.targetSlot.value = target.slot; els.eraseSlot.textContent = target.slot; }
+    }
     els.imgInfo.innerHTML = `<b>${name}</b><br>version <b>${info.version}</b> · ${(info.size / 1024).toFixed(1)} KiB` +
+      (target ? ` · manifest: image ${target.image}${target.slot != null ? `, slot ${target.slot}` : ''}` : '') +
       (info.hash ? `<br><span class="mono" title="${hex(info.hash)}">hash ${hex(info.hash).slice(0, 16)}…</span>` : '');
     els.imgInfo.classList.remove('err');
   } catch (e) {
@@ -225,13 +237,20 @@ els.file.onchange = async () => {
   if (!f) { els.imgInfo.textContent = ''; updateUi(); return; }
   const buf = new Uint8Array(await f.arrayBuffer());
   if (buf[0] === 0x50 && buf[1] === 0x4b) {
-    let bins;
-    try { bins = listZip(buf).filter((e) => e.name.endsWith('.bin')); }
-    catch (e) { els.imgInfo.textContent = e.message; els.imgInfo.classList.add('err'); return; }
+    let bins, manifest;
+    try {
+      const entries = listZip(buf);
+      bins = entries.filter((e) => e.name.endsWith('.bin'));
+      const m = entries.find((e) => e.name.split('/').pop() === 'manifest.json');
+      manifest = m ? parseManifest(await m.read()) : new Map();
+    } catch (e) { els.imgInfo.textContent = e.message; els.imgInfo.classList.add('err'); return; }
     if (!bins.length) { els.imgInfo.textContent = 'zip has no .bin files'; els.imgInfo.classList.add('err'); return; }
     els.zipEntry.innerHTML = '';
     bins.forEach((b, i) => els.zipEntry.add(new Option(b.name, i)));
-    const pick = async () => useImage(await bins[els.zipEntry.value].read(), `${f.name} › ${bins[els.zipEntry.value].name}`);
+    const pick = async () => {
+      const b = bins[els.zipEntry.value];
+      await useImage(await b.read(), `${f.name} › ${b.name}`, manifest.get(b.name.split('/').pop()));
+    };
     els.zipEntry.onchange = pick;
     els.zipPick.hidden = bins.length < 2;
     await pick();
@@ -247,12 +266,15 @@ function fmtTime(s) { return s < 60 ? `${s.toFixed(0)} s` : `${Math.floor(s / 60
 els.upload.onclick = () => run('upload', async () => {
   const { data, info } = image;
   const mtu = Number(els.mtu.value) || 256;
+  const img = targetImage();
+  const slot = targetSlot();
   abort = new AbortController();
   updateUi();
   const t0 = performance.now();
-  log(`uploading ${info.version} (${data.length} B, mtu ${mtu})`);
+  log(`uploading ${info.version} to image ${img} (${data.length} B, mtu ${mtu})`);
   try {
     await smp.upload(data, {
+      image: img,
       mtu,
       signal: abort.signal,
       onProgress: (off, total) => {
@@ -270,21 +292,27 @@ els.upload.onclick = () => run('upload', async () => {
   log(`upload done in ${fmtTime((performance.now() - t0) / 1000)}`, 'ok');
 
   const action = els.after.value;
+  let marked = false;
   if (action !== 'none') {
     const list = (await smp.imageList()).images || [];
     const target = info.hash
       ? list.find((i) => i.hash && hex(i.hash) === hex(info.hash))
-      : list.find((i) => i.slot === 1);
-    if (!target) throw new Error('uploaded image not found in slot list');
-    if (target.active) {
+      : list.find((i) => (i.image ?? 0) === img && i.slot === slot);
+    if (!target) {
+      // Images MCUboot doesn't manage (e.g. a direct-upload data slot) aren't listed.
+      if (img === 0) throw new Error('uploaded image not found in slot list');
+      log(`image ${img} not in the slot list; nothing to mark`, 'warn');
+    } else if (target.active) {
       log('uploaded image is already the running image; nothing to mark', 'warn');
+      marked = true;
     } else {
       await smp.imageSet(target.hash, action === 'confirm');
+      marked = true;
       log(`marked slot ${target.slot} ${action === 'confirm' ? 'confirmed (permanent)' : 'test'}`, 'ok');
     }
   }
   await refreshSlots();
-  if (els.resetAfter.checked && action !== 'none') {
+  if (els.resetAfter.checked && marked) {
     await smp.reset();
     log('reset requested', 'ok');
   }

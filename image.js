@@ -72,3 +72,20 @@ export function listZip(buf) {
   }
   return entries;
 }
+
+// nRF Connect SDK DFU zip manifest.json -> Map(file name -> {image, slot?}).
+// `image_index` is the SMP upload image number; `slot` is optional.
+export function parseManifest(bytes) {
+  let m;
+  try { m = JSON.parse(new TextDecoder().decode(bytes)); }
+  catch (e) { throw new Error(`bad manifest.json: ${e.message}`); }
+  const out = new Map();
+  for (const f of m.files || []) {
+    if (!f.file || f.image_index == null) continue;
+    const image = Number(f.image_index);
+    if (!Number.isInteger(image) || image < 0) throw new Error(`bad image_index in manifest.json: ${f.image_index}`);
+    const slot = f.slot == null ? undefined : Number(f.slot);
+    out.set(f.file.split('/').pop(), { image, slot: Number.isInteger(slot) ? slot : undefined });
+  }
+  return out;
+}
