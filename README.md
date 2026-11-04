@@ -1,10 +1,16 @@
 # mcumgr-web-dfu
 
-Browser tool for MCUmgr SMP over a serial port (e.g. USB CDC-ACM) on Zephyr /
-MCUboot devices: firmware upload, image test/confirm, and reset. Chrome/Edge
-only (Web Serial). No build step, no deps.
+Tool for MCUmgr SMP over a serial port (e.g. USB CDC-ACM) on Zephyr / MCUboot
+devices: firmware upload, image test/confirm, and reset. Runs in Chrome/Edge
+(Web Serial) from `web/` with no build step, or as a standalone Electron app.
 
-    ./serve.sh            # then open http://localhost:8000
+    ./serve.sh            # browser: open http://localhost:8000
+    npm install && npm start            # Electron app
+    npm run dist:win      # Windows portable + installer .exe in dist/
+
+`web/` is published to GitHub Pages on push to main. Pushing a `v*` tag builds
+the Windows app and attaches it to a GitHub release (`release.yml`). The
+Electron app runs fully offline and shows its own port picker with COM names.
 
 - **Connect**: pick the port the device runs SMP on (not a log/shell port).
 - **Upload**: accepts an MCUboot `*.signed.bin` or a `dfu_application.zip`. After

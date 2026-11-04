@@ -320,6 +320,35 @@ els.upload.onclick = () => run('upload', async () => {
 
 els.cancel.onclick = () => abort?.abort();
 
+// ---- Electron port chooser ------------------------------------------------
+
+// Electron has no built-in chooser: main forwards the port list for each
+// requestPort() (and on hotplug) and waits for select().
+function setupElectronChooser(es) {
+  const dlg = $('port-dialog');
+  const list = $('port-list');
+  let answered = true;
+  const answer = (id) => { if (!answered) { answered = true; es.select(id); } dlg.close(); };
+
+  es.onPorts((ports) => {
+    answered = false;
+    const prev = list.value;
+    const h4 = (n) => Number(n).toString(16).padStart(4, '0');
+    ports = [...ports].sort((a, b) => !!b.vendorId - !!a.vendorId); // USB first
+    list.replaceChildren(...ports.map((p) => {
+      const usb = p.vendorId ? ` [${h4(p.vendorId)}:${h4(p.productId)}${p.serialNumber ? ` ${p.serialNumber}` : ''}]` : '';
+      return new Option(`${p.portName}  ${p.displayName || ''}${usb}`, p.portId);
+    }));
+    if (!ports.length) list.append(new Option('No serial ports found (plug the device in)', '', false, false));
+    list.value = ports.some((p) => p.portId === prev) ? prev : (ports[0]?.portId ?? '');
+    if (!dlg.open) dlg.showModal();
+  });
+  $('port-ok').onclick = () => list.value && answer(list.value);
+  list.ondblclick = () => list.value && answer(list.value);
+  $('port-cancel').onclick = () => answer('');
+  dlg.oncancel = () => answer(''); // Esc
+}
+
 // ---- init ---------------------------------------------------------------
 
 if (!('serial' in navigator)) {
@@ -327,6 +356,7 @@ if (!('serial' in navigator)) {
   els.connect.disabled = true;
 } else {
   smp.lineDelayMs = Number(els.lineDelay.value) || 0;
+  if (window.electronSerial) setupElectronChooser(window.electronSerial);
   navigator.serial.addEventListener('disconnect', (e) => { if (e.target === lastPort) log('USB port removed', 'dim'); });
   updateUi();
 }

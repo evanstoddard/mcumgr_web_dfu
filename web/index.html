@@ -66,6 +66,9 @@
   #log .ok { color: #4ade80; } #log .warn { color: #fbbf24; } #log .err { color: #f87171; } #log .dim { color: #6b7385; }
   #unsupported { background: var(--err); color: #fff; padding: 12px 16px; border-radius: 8px; }
   .hint { color: var(--dim); font-size: 12px; margin: 8px 0 0; }
+  dialog { background: var(--panel); color: var(--fg); border: 1px solid var(--border); border-radius: 10px; padding: 16px; width: min(520px, 92vw); }
+  dialog::backdrop { background: rgb(0 0 0 / .4); }
+  #port-list { width: 100%; margin: 4px 0 12px; }
 </style>
 </head>
 <body>
@@ -133,6 +136,11 @@
     <div id="log"></div>
   </section>
 </main>
+<dialog id="port-dialog">
+  <h2>Select serial port</h2>
+  <select id="port-list" size="8"></select>
+  <div class="row"><span class="spacer"></span><button id="port-cancel">Cancel</button><button id="port-ok" class="primary">Connect</button></div>
+</dialog>
 <script type="module" src="app.js"></script>
 </body>
 </html>

@@ -1,0 +1,26 @@
+{
+  "name": "mcumgr-dfu",
+  "productName": "MCUmgr DFU",
+  "version": "0.1.0",
+  "description": "MCUmgr SMP serial DFU tool",
+  "author": "Evan Stoddard",
+  "private": true,
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win --x64"
+  },
+  "devDependencies": {
+    "electron": "45.2.2",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "com.rx360.mcumgr-dfu",
+    "files": ["electron/**", "web/**", "package.json"],
+    "directories": { "output": "dist" },
+    "win": { "target": ["portable", "nsis"] },
+    "portable": { "artifactName": "${name}-${version}-portable.exe" },
+    "nsis": { "artifactName": "${name}-${version}-setup.exe" },
+    "publish": null
+  }
+}
